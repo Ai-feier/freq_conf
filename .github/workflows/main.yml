@@ -1,0 +1,36 @@
+name: Daily Run
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Runs at midnight UTC every day
+  workflow_dispatch:
+
+jobs:
+  build-and-run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run python script to generate pairs
+        run: python tools/self_time_50bilile.py
+
+      - name: Make ossutil executable
+        run: chmod +x ./ossutil
+
+      - name: Configure and upload to OSS
+        env:
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+        run: |
+          ./ossutil config -e $OSS_ENDPOINT -i $OSS_ACCESS_KEY_ID -k $OSS_ACCESS_KEY_SECRET
+          ./ossutil cp gen_pairs/50bili.json oss://freq/gen_pairs/50bili.json -f
