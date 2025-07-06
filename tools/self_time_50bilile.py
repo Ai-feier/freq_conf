@@ -5,6 +5,16 @@ import time
 from datetime import datetime, timedelta
 import concurrent.futures
 
+# Check for proxy configuration from environment variables
+proxy_url = os.environ.get('HTTPS_PROXY')
+PROXIES = {
+    "http": proxy_url,
+    "https": proxy_url,
+} if proxy_url else None
+
+if PROXIES:
+    print(f"✅ Using proxy: {proxy_url}")
+
 class BinanceFuturesUtil:
     FUTURES_BASE_URL = "https://fapi.binance.com"
     COINGECKO_URL = "https://api.coingecko.com/api/v3"
@@ -41,7 +51,8 @@ class BinanceFuturesUtil:
                 "sparkline": "false",
             }
             try:
-                resp = requests.get(url, params=params, timeout=10)
+                # No proxy for CoinGecko unless it also starts blocking
+                resp = requests.get(url, params=params, timeout=15)
                 resp.raise_for_status()
                 data = resp.json()
                 if not data:
@@ -54,6 +65,8 @@ class BinanceFuturesUtil:
             except Exception as e:
                 print(f"Error fetching CoinGecko data page {page}: {e}")
                 break
+            # Add a delay to avoid hitting rate limits
+            time.sleep(2)
 
         # 写缓存
         try:
@@ -68,7 +81,7 @@ class BinanceFuturesUtil:
     def get_usdt_perpetual_symbols() -> List[str]:
         """获取所有 USDT 永续合约的合约标识符，例如 BTCUSDT"""
         url = f"{BinanceFuturesUtil.FUTURES_BASE_URL}/fapi/v1/exchangeInfo"
-        resp = requests.get(url)
+        resp = requests.get(url, proxies=PROXIES)
         resp.raise_for_status()
         data = resp.json()
         symbols = [s['symbol'] for s in data['symbols'] if s['symbol'].endswith("USDT") and s['contractType'] == "PERPETUAL"]
@@ -92,7 +105,7 @@ class BinanceFuturesUtil:
             "endTime": end_ts,
             "limit": 1
         }
-        resp = requests.get(url, params=params)
+        resp = requests.get(url, params=params, proxies=PROXIES)
         resp.raise_for_status()
         klines = resp.json()
         if not klines:
@@ -120,12 +133,15 @@ class BinanceFuturesUtil:
                 print(f"Error fetching daily volume for {symbol} on {check_date}: {e}")
                 volume_usdt = 0
 
+            if market_cap == 0: # Avoid division by zero
+                continue
+                
             ratio = volume_usdt / market_cap
             if ratio > threshold:
                 # 获取最新行情简化信息
                 try:
                     ticker_url = f"{BinanceFuturesUtil.FUTURES_BASE_URL}/fapi/v1/ticker/24hr?symbol={symbol}"
-                    resp = requests.get(ticker_url)
+                    resp = requests.get(ticker_url, proxies=PROXIES)
                     resp.raise_for_status()
                     ticker = resp.json()
                     price = float(ticker.get("lastPrice", 0))
@@ -164,7 +180,7 @@ class BinanceFuturesUtil:
 
         results = []
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             futures = []
             for symbol in symbols:
                 base = symbol.replace("USDT", "").upper()
@@ -222,7 +238,13 @@ if __name__ == "__main__":
     start_date = datetime.now() - day_delta - pre_day_delta
     date_str = start_date.strftime("%Y%m%d")
     
-    output_file = "../gen_pairs/50bili.json"
+    # The output path is relative to the project root, so when running from the root,
+    # it should be 'gen_pairs/50bili.json'.
+    # When running this script directly from `tools/`, the path is `../gen_pairs/50bili.json`
+    # Let's make it more robust by defining it from the script's location.
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    output_file = os.path.join(script_dir, "..", "gen_pairs", "50bili.json")
+
 
     # 1. 生成文件
     backtesting_filter(date_str=date_str, days=day, threshold=0.7, output_path=output_file)

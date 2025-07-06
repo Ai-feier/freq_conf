@@ -21,6 +21,8 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run python script to generate pairs
+        env:
+          HTTPS_PROXY: ${{ secrets.HTTPS_PROXY }}
         run: python tools/self_time_50bilile.py
 
       - name: Make ossutil executable
